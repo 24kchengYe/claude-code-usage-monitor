@@ -236,28 +236,34 @@ def main():
     if model_short:
         parts.append(f"{BLUE}{model_short}{RESET}")
 
-    # ── 2. Git Info (dir@branch +added -deleted) ──
+    # ── 2. Git Info (local + remote) ──
     cwd = session.get("cwd", "")
     git_info = get_git_info(cwd)
     if git_info:
-        # Show remote repo name if available, plus local dir
-        if git_info.get("remote"):
-            name_part = f"{CYAN}{git_info['remote']}{RESET}"
-        else:
-            name_part = f"{CYAN}{git_info['dir']}{RESET}"
-        git_part = f"{name_part}{DIM}@{RESET}{GREEN}{git_info['branch']}{RESET}"
+        # Local: dir@branch (+added -deleted)
+        local_part = f"{WHITE}local:{RESET} {CYAN}{git_info['dir']}{RESET}{DIM}@{RESET}{GREEN}{git_info['branch']}{RESET}"
         if git_info["added"] > 0 or git_info["deleted"] > 0:
             changes = []
             if git_info["added"] > 0:
                 changes.append(f"{GREEN}+{git_info['added']}{RESET}")
             if git_info["deleted"] > 0:
                 changes.append(f"{RED}-{git_info['deleted']}{RESET}")
-            git_part += f" {DIM}({RESET}{' '.join(changes)}{DIM}){RESET}"
-        parts.append(git_part)
-    elif cwd:
-        dir_name = os.path.basename(cwd)
+            local_part += f" {DIM}({RESET}{' '.join(changes)}{DIM}){RESET}"
+        parts.append(local_part)
+
+        # Remote: owner/repo or none
+        if git_info.get("remote"):
+            parts.append(f"{WHITE}remote:{RESET} {CYAN}{git_info['remote']}{RESET}")
+        else:
+            parts.append(f"{WHITE}remote:{RESET} {DIM}none{RESET}")
+    else:
+        # Not a git repo
+        dir_name = os.path.basename(cwd) if cwd else ""
         if dir_name:
-            parts.append(f"{CYAN}{dir_name}{RESET}")
+            parts.append(f"{WHITE}local:{RESET} {CYAN}{dir_name}{RESET}")
+        else:
+            parts.append(f"{WHITE}local:{RESET} {DIM}none{RESET}")
+        parts.append(f"{WHITE}remote:{RESET} {DIM}none{RESET}")
 
     # ── 3. Token Usage (50k/200k (25%)) ──
     ctx = session.get("context_window", {})
