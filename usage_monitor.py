@@ -17,7 +17,7 @@ import urllib.error
 
 USAGE_API = "https://api.anthropic.com/api/oauth/usage"
 ANTHROPIC_BETA = "oauth-2025-04-20"
-CACHE_TTL = 60  # seconds
+CACHE_TTL = 120  # seconds
 USER_AGENT = "claude-code-usage-monitor/1.0"
 
 
@@ -97,17 +97,22 @@ def get_oauth_token():
         return None, None
 
 
-def _read_cache():
-    """Read cached usage data if fresh enough."""
+def _read_cache(stale_ok=False):
+    """Read cached usage data.
+
+    Args:
+        stale_ok: If True, return data even if expired (for fallback on errors).
+    """
     path = _cache_path()
     try:
         mtime = os.path.getmtime(path)
-        if time.time() - mtime > CACHE_TTL:
-            return None, path
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f), path
+            data = json.load(f)
+        if time.time() - mtime > CACHE_TTL and not stale_ok:
+            return None, path, data  # expired but keep stale copy
+        return data, path, data
     except Exception:
-        return None, path
+        return None, path, None
 
 
 def _write_cache(data, path):
@@ -125,13 +130,13 @@ def fetch_usage(force=False):
     Returns:
         tuple: (data_dict, error_str) - data may be cached on error
     """
-    cached, cache_path = _read_cache()
+    cached, cache_path, stale = _read_cache()
     if cached and not force:
         return cached, None
 
     token, plan = get_oauth_token()
     if not token:
-        return cached, "not logged in - run Claude Code and /login first"
+        return stale, "not logged in - run Claude Code and /login first"
 
     _install_proxy()
 
@@ -151,9 +156,14 @@ def fetch_usage(force=False):
         _write_cache(data, cache_path)
         return data, None
     except urllib.error.HTTPError as e:
-        return cached, f"HTTP {e.code}"
+        # On rate limit (429) or server error, use stale cache instead of nothing
+        if stale:
+            return stale, None
+        return None, f"HTTP {e.code}"
     except Exception as e:
-        return cached, str(e)
+        if stale:
+            return stale, None
+        return None, str(e)
 
 
 def _pct(utilization):
