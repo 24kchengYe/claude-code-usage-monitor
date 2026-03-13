@@ -2,9 +2,25 @@
 
 # claude-code-usage-monitor
 
-> **Real-time Claude Code subscription usage monitoring — as a skill, statusline widget, or standalone CLI.**
+> **Real-time Claude Code subscription usage monitoring — as a rich statusline, skill command, or standalone CLI.**
 
-Stop guessing how much quota you've burned. See your 5-hour session limit, 7-day rolling usage, per-model breakdown, and reset countdowns — all without leaving Claude Code.
+Stop guessing how much quota you've burned. See your model, git branch, context window, reasoning effort, 5h/7d rate limits with reset times, extra usage, and session cost — all in one colorful statusline.
+
+## Screenshot
+
+```
+Opus | my-project@main (+12 -3) | 50k/200k (25%) | effort: med | 5h 9% @14:30 | 7d 17% @Mar 16, 22:59 | extra $0.42/$50.00 | $28.39
+ ^           ^           ^             ^               ^              ^                ^                       ^
+ |           |           |             |               |              |                |                       session cost
+ |           |           |             |               |              7-day window      extra usage billing
+ |           |           |             |               5-hour window + reset time
+ |           |           |             reasoning effort level
+ |           |           context window tokens (current/max + %)
+ |           git dir@branch (+added -deleted)
+ model name (color-coded)
+```
+
+All segments are **ANSI RGB color-coded** — green when healthy, yellow at 50%, orange at 70%, red at 90%+.
 
 ## Why This Exists
 
@@ -15,17 +31,38 @@ Claude Code's Pro/Max subscriptions have **two hidden rate-limit windows** that 
 | **5-hour** | Temporary slowdown until the window slides |
 | **7-day** | Week-long rate limiting |
 
-This tool makes those invisible limits visible — in your statusline, via a skill command, or as a standalone script.
+This tool makes those invisible limits visible — plus gives you context about your model, git state, token consumption, and cost at a glance.
 
 ## Features
 
-- **Statusline widget** — Always-visible usage in Claude Code's bottom bar: `Opus | ctx:25% | 5h:6% 7d:17% | $0.42`
-- **Skill integration** — Say "查看用量" or "check usage" to get a detailed report with progress bars and reset countdowns
-- **Standalone CLI** — Run from any terminal: `python usage_monitor.py --detailed`
-- **Proxy-aware** — Uses Python `urllib` which natively respects `HTTPS_PROXY`, unlike Node.js `fetch` (looking at you, quotapulse)
+### Statusline (Full-Featured)
+
+| Segment | What it shows |
+|---------|--------------|
+| **Model** | Current model name (Opus/Sonnet/Haiku) in blue |
+| **Git Info** | `dir@branch (+added -deleted)` with green/red coloring |
+| **Token Usage** | `50k/200k (25%)` — current/max context tokens with percentage |
+| **Reasoning Effort** | `effort: low/med/high` — color-coded reasoning intensity |
+| **5h Rate Limit** | `5h 9% @14:30` — usage percentage + local reset time |
+| **7d Rate Limit** | `7d 17% @Mar 16, 22:59` — usage percentage + local reset time |
+| **Extra Usage** | `extra $0.42/$50.00` — extra billing if enabled |
+| **Session Cost** | `$28.39` — cumulative API cost for current session |
+
+### Skill Integration
+
+Say "查看用量" or "check usage" for a detailed ASCII report with progress bars and reset countdowns.
+
+### Standalone CLI
+
+Run from any terminal: `python usage_monitor.py --detailed`
+
+### Technical Highlights
+
+- **Proxy-aware** — Python `urllib` natively respects `HTTPS_PROXY`, unlike Node.js `fetch`
 - **Zero dependencies** — Pure Python standard library, no `pip install` needed
 - **60-second smart cache** — Won't hammer the API on every statusline refresh
 - **Cross-platform** — Windows, macOS, Linux
+- **ANSI RGB colors** — Matching oh-my-posh theme aesthetics
 
 ## Install
 
@@ -91,16 +128,7 @@ Claude will run the monitor and show you a detailed report.
 
 ### Statusline
 
-Once configured, the bottom bar automatically shows:
-
-```
-Opus | ctx:25% | 5h:6% 7d:17% | $0.42
-       ^         ^      ^        ^
-       |         |      |        session cost
-       |         |      7-day window usage
-       |         5-hour window usage
-       context window used
-```
+Once configured, the bottom bar automatically shows all segments. The statusline reads session data from Claude Code's stdin JSON and combines it with API usage data.
 
 ### CLI
 
@@ -140,7 +168,8 @@ python usage_monitor.py --detailed --force
 1. Reads your OAuth token from `~/.claude/.credentials.json` (created when you log in to Claude Code)
 2. Calls the Anthropic usage API (`api.anthropic.com/api/oauth/usage`)
 3. Caches the response for 60 seconds to avoid rate limiting
-4. Formats the output as compact text, detailed report, or JSON
+4. The statusline script reads Claude Code's session JSON from stdin for model/token/cost data
+5. Combines API data + session data into a single colorful status line
 
 ### Proxy Support
 
@@ -150,6 +179,15 @@ Unlike tools that use Node.js `fetch` (which ignores `HTTPS_PROXY`), this tool u
 - Windows system proxy (registry fallback for Clash/V2Ray/SSR users)
 
 No manual proxy configuration needed.
+
+## Color Coding
+
+| Usage Level | Color | Meaning |
+|------------|-------|---------|
+| 0–49% | Green | Healthy |
+| 50–69% | Yellow | Moderate |
+| 70–89% | Orange | Elevated |
+| 90–100% | Red | Critical — consider pausing |
 
 ## Supported Plans
 
@@ -177,7 +215,7 @@ usage-monitor/
 ├── SKILL.md            ← Claude Code skill definition
 ├── README.md
 ├── usage_monitor.py    ← Core library + CLI entry point
-├── statusline.py       ← Statusline script (reads stdin JSON)
+├── statusline.py       ← Rich statusline (model, git, tokens, effort, limits, cost)
 └── scripts/
     └── show_usage.py   ← Detailed report script
 ```
@@ -191,6 +229,7 @@ usage-monitor/
 ## Inspired By
 
 - [quotapulse](https://github.com/chaoxu/quotapulse) — Multi-provider CLI usage tracker (Codex/Claude/Gemini). Great concept, but Node.js `fetch` doesn't respect system proxies on Windows, causing HTTP 403 errors behind Clash/V2Ray. This project solves that with Python `urllib`.
+- [ClaudeCodeStatusLine](https://github.com/daniel3303/ClaudeCodeStatusLine) — Feature-rich statusline concept. We adopted similar segments (git info, token details, reasoning effort, ANSI colors) while keeping the zero-dependency Python approach.
 
 ## License
 
