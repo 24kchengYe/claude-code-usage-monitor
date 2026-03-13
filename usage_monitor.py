@@ -158,10 +158,12 @@ def fetch_usage(force=False):
     except urllib.error.HTTPError as e:
         # On rate limit (429) or server error, use stale cache instead of nothing
         if stale:
+            stale["_stale"] = True
             return stale, None
         return None, f"HTTP {e.code}"
     except Exception as e:
         if stale:
+            stale["_stale"] = True
             return stale, None
         return None, str(e)
 

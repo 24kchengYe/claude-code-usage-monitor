@@ -295,6 +295,8 @@ def main():
 
     # ── 5. Rate Limits (5h/7d) with reset times ──
     data, _ = usage_monitor.fetch_usage(force=False)
+    is_stale = data.get("_stale", False) if data else False
+    stale_tag = f" {DIM}(cached){RESET}" if is_stale else ""
     if data:
         five_h = data.get("five_hour", {})
         seven_d = data.get("seven_day", {})
@@ -308,7 +310,7 @@ def main():
 
         if seven_pct is not None:
             reset = fmt_reset_time(seven_d.get("resets_at"))
-            parts.append(f"{WHITE}7d{RESET} {color_pct(seven_pct)}{reset}")
+            parts.append(f"{WHITE}7d{RESET} {color_pct(seven_pct)}{reset}{stale_tag}")
 
         # ── 6. Extra Usage ──
         extra = data.get("extra_usage", {})
