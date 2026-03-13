@@ -131,6 +131,30 @@ def get_git_info(cwd):
                     except ValueError:
                         pass
 
+        # Get remote repo name (e.g. "24kchengYe/repo-name")
+        remote_name = None
+        try:
+            remote = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                capture_output=True, text=True, timeout=3, cwd=cwd
+            )
+            if remote.returncode == 0 and remote.stdout.strip():
+                url = remote.stdout.strip()
+                # Handle https://github.com/user/repo.git and git@github.com:user/repo.git
+                if url.endswith(".git"):
+                    url = url[:-4]
+                if "github.com" in url:
+                    if ":" in url.split("github.com")[-1]:
+                        # git@github.com:user/repo
+                        remote_name = url.split(":")[-1]
+                    else:
+                        # https://github.com/user/repo
+                        parts = url.rstrip("/").split("/")
+                        if len(parts) >= 2:
+                            remote_name = parts[-2] + "/" + parts[-1]
+        except Exception:
+            pass
+
         # Get directory name
         dir_name = os.path.basename(cwd)
 
@@ -139,6 +163,7 @@ def get_git_info(cwd):
             "branch": branch_name,
             "added": added,
             "deleted": deleted,
+            "remote": remote_name,
         }
     except Exception:
         return None
@@ -215,7 +240,12 @@ def main():
     cwd = session.get("cwd", "")
     git_info = get_git_info(cwd)
     if git_info:
-        git_part = f"{CYAN}{git_info['dir']}{RESET}{DIM}@{RESET}{GREEN}{git_info['branch']}{RESET}"
+        # Show remote repo name if available, plus local dir
+        if git_info.get("remote"):
+            name_part = f"{CYAN}{git_info['remote']}{RESET}"
+        else:
+            name_part = f"{CYAN}{git_info['dir']}{RESET}"
+        git_part = f"{name_part}{DIM}@{RESET}{GREEN}{git_info['branch']}{RESET}"
         if git_info["added"] > 0 or git_info["deleted"] > 0:
             changes = []
             if git_info["added"] > 0:
