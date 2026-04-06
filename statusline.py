@@ -427,9 +427,11 @@ def main():
     line1_segs = [s for s in [seg_model, seg_local, seg_remote, seg_ssh] if s]
     line2_segs = [s for s in [seg_tokens, seg_effort, seg_5h, seg_7d, seg_extra, seg_cost] if s]
     if line1_segs:
-        print(SEP.join(line1_segs))
+        sys.stdout.write(SEP.join(line1_segs) + RESET + "\n")
+        sys.stdout.flush()
     if line2_segs:
-        print(SEP.join(line2_segs))
+        sys.stdout.write(SEP.join(line2_segs) + RESET + "\n")
+        sys.stdout.flush()
 
 
 if __name__ == "__main__":
