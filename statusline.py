@@ -421,27 +421,14 @@ def main():
     if cost_usd is not None:
         seg_cost = f"{DIM}${cost_usd:.2f}{RESET}"
 
-    # ── Layout: auto single/multi-line based on terminal width ──
-    all_segs = [s for s in [
-        seg_model, seg_local, seg_remote, seg_ssh,
-        seg_tokens, seg_effort, seg_5h, seg_7d, seg_extra, seg_cost,
-    ] if s]
-
-    single_line = SEP.join(all_segs)
-    try:
-        term_width = shutil.get_terminal_size((120, 24)).columns
-    except Exception:
-        term_width = 120
-
-    if visible_len(single_line) <= term_width:
-        print(single_line)
-    else:
-        # Split into two lines:
-        # Line 1: model | local | remote | ssh
-        # Line 2: tokens | effort | 5h | 7d | extra | cost
-        line1_segs = [s for s in [seg_model, seg_local, seg_remote, seg_ssh] if s]
-        line2_segs = [s for s in [seg_tokens, seg_effort, seg_5h, seg_7d, seg_extra, seg_cost] if s]
+    # ── Layout: always two lines ──
+    # Line 1: model | local | remote | ssh
+    # Line 2: tokens | effort | 5h | 7d | extra | cost
+    line1_segs = [s for s in [seg_model, seg_local, seg_remote, seg_ssh] if s]
+    line2_segs = [s for s in [seg_tokens, seg_effort, seg_5h, seg_7d, seg_extra, seg_cost] if s]
+    if line1_segs:
         print(SEP.join(line1_segs))
+    if line2_segs:
         print(SEP.join(line2_segs))
 
 
