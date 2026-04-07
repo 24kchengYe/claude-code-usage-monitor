@@ -178,16 +178,62 @@ def visible_len(s):
     return len(_ANSI_RE.sub('', s))
 
 
+def _get_ssh_cmdlines():
+    """Get SSH process command lines, auto-detecting OS."""
+    lines = []
+    if sys.platform == "win32":
+        # Windows: use wmic or tasklist to get ssh.exe command lines
+        try:
+            result = subprocess.run(
+                ["wmic", "process", "where", "name='ssh.exe'", "get", "CommandLine"],
+                capture_output=True, text=True, timeout=5,
+                creationflags=0x08000000,  # CREATE_NO_WINDOW
+            )
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    line = line.strip()
+                    if line and line.lower() != "commandline" and "ssh" in line.lower():
+                        lines.append(line)
+        except Exception:
+            pass
+        # Fallback: PowerShell Get-CimInstance
+        if not lines:
+            try:
+                result = subprocess.run(
+                    ["powershell", "-NoProfile", "-Command",
+                     "Get-CimInstance Win32_Process -Filter \"name='ssh.exe'\" | Select -Expand CommandLine"],
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=0x08000000,
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        line = line.strip()
+                        if line and "ssh" in line.lower():
+                            lines.append(line)
+            except Exception:
+                pass
+    else:
+        # macOS / Linux: use ps
+        try:
+            result = subprocess.run(
+                ["ps", "-eo", "args"],
+                capture_output=True, text=True, timeout=3
+            )
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    line = line.strip()
+                    if line.startswith("ssh ") or " ssh " in line:
+                        if "grep" not in line and "ps " not in line:
+                            lines.append(line)
+        except Exception:
+            pass
+    return lines
+
+
 def get_ssh_connections():
-    """Detect active SSH connections (tunnels and sessions) from ps output."""
-    try:
-        result = subprocess.run(
-            ["ps", "-eo", "args"],
-            capture_output=True, text=True, timeout=3
-        )
-        if result.returncode != 0:
-            return None
-    except Exception:
+    """Detect active SSH connections (tunnels and sessions)."""
+    ssh_lines = _get_ssh_cmdlines()
+    if not ssh_lines:
         return None
 
     # Load known hosts from ~/.ssh/config
@@ -207,14 +253,7 @@ def get_ssh_connections():
 
     hosts = {}  # host -> {"tunnels": set(), "sessions": int}
 
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line.startswith("ssh ") and "ssh " not in line:
-            continue
-        # Skip grep/ps itself
-        if "grep" in line or "ps " in line:
-            continue
-
+    for line in ssh_lines:
         # Find which host this SSH connects to
         target = None
         for alias in host_aliases:
