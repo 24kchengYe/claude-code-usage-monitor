@@ -286,6 +286,60 @@ def get_ssh_connections():
     return hosts
 
 
+def get_local_session_tokens(session_id):
+    """Read token usage from local session JSONL when API is unavailable."""
+    if not session_id:
+        return None
+    projects_dir = os.path.expanduser("~/.claude/projects")
+    jsonl_path = None
+    try:
+        for proj in os.listdir(projects_dir):
+            candidate = os.path.join(projects_dir, proj, f"{session_id}.jsonl")
+            if os.path.exists(candidate):
+                jsonl_path = candidate
+                break
+    except Exception:
+        return None
+    if not jsonl_path:
+        return None
+
+    total_in = 0
+    total_out = 0
+    total_cache_read = 0
+    total_cache_create = 0
+    msg_count = 0
+    try:
+        with open(jsonl_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if rec.get("type") == "assistant":
+                    msg_count += 1
+                msg = rec.get("message", {})
+                usage = msg.get("usage")
+                if usage:
+                    total_in += usage.get("input_tokens", 0)
+                    total_out += usage.get("output_tokens", 0)
+                    total_cache_read += usage.get("cache_read_input_tokens", 0)
+                    total_cache_create += usage.get("cache_creation_input_tokens", 0)
+    except Exception:
+        return None
+
+    return {
+        "input_tokens": total_in,
+        "output_tokens": total_out,
+        "cache_read_input_tokens": total_cache_read,
+        "cache_creation_input_tokens": total_cache_create,
+        "total": total_in + total_out + total_cache_read + total_cache_create,
+        "messages": msg_count,
+    }
+
+
 def get_effort_level():
     """Get reasoning effort level from env var or settings.json."""
     # 1. Environment variable
@@ -392,7 +446,7 @@ def main():
             ssh_parts.append(label)
         seg_ssh = f"{WHITE}ssh:{RESET} {' '.join(ssh_parts)}"
 
-    # 4. Token Usage
+    # 4. Token Usage — always show detailed breakdown
     seg_tokens = ""
     ctx = session.get("context_window", {})
     usage = ctx.get("current_usage", {})
@@ -400,14 +454,48 @@ def main():
     input_tokens = usage.get("input_tokens", 0) or 0
     cache_create = usage.get("cache_creation_input_tokens", 0) or 0
     cache_read = usage.get("cache_read_input_tokens", 0) or 0
-    current_tokens = input_tokens + cache_create + cache_read
-    if ctx_size and ctx_size > 0:
-        token_pct = (current_tokens * 100) / ctx_size
+    output_tokens = usage.get("output_tokens", 0) or 0
+    current_tokens = input_tokens + cache_create + cache_read + output_tokens
+
+    # Use model-specific context limits (override Claude Code's 200k default)
+    ctx_limits = {
+        "kimi": 256_000,
+        "glm": 128_000,
+        "claude": 1_000_000,
+    }
+    ctx_limit = 1_000_000
+    for k, v in ctx_limits.items():
+        if k in model.lower():
+            ctx_limit = v
+            break
+
+    # Get local session data for message count (API data doesn't include this)
+    local = get_local_session_tokens(session.get("sessionId", ""))
+    msg_count = local["messages"] if local else 0
+
+    # Prefer API token breakdown when available; fallback to local totals
+    if current_tokens > 0:
+        token_pct = min(100, int(current_tokens / ctx_limit * 100)) if ctx_limit else 0
         seg_tokens = (
             f"{ORANGE}{fmt_tokens(current_tokens)}{RESET}"
-            f"{DIM}/{RESET}"
-            f"{fmt_tokens(ctx_size)}"
+            f"{DIM}/{RESET}{fmt_tokens(ctx_limit)}"
             f" {DIM}({RESET}{color_pct(token_pct)}{DIM}){RESET}"
+            f" {DIM}(↗{fmt_tokens(output_tokens)}"
+            f" ↙{fmt_tokens(input_tokens)}"
+            f" ⚡{fmt_tokens(cache_read)}){RESET}"
+            f" {DIM}💬{msg_count}{RESET}"
+        )
+    elif local:
+        total = local["total"]
+        token_pct = min(100, int(total / ctx_limit * 100)) if ctx_limit else 0
+        seg_tokens = (
+            f"{ORANGE}{fmt_tokens(total)}{RESET}"
+            f"{DIM}/{RESET}{fmt_tokens(ctx_limit)}"
+            f" {DIM}({RESET}{color_pct(token_pct)}{DIM}){RESET}"
+            f" {DIM}(↗{fmt_tokens(local['output_tokens'])}"
+            f" ↙{fmt_tokens(local['input_tokens'])}"
+            f" ⚡{fmt_tokens(local['cache_read_input_tokens'])}){RESET}"
+            f" {DIM}💬{msg_count}{RESET}"
         )
     else:
         ctx_pct = ctx.get("used_percentage")
@@ -418,14 +506,19 @@ def main():
     effort = get_effort_level()
     seg_effort = f"{WHITE}effort:{RESET} {fmt_effort(effort)}"
 
-    # 6. Rate Limits + Extra
+    # 6. Rate Limits + Extra (Anthropic API) or Local Fallback
     seg_5h = ""
     seg_7d = ""
     seg_extra = ""
-    data, _ = usage_monitor.fetch_usage(force=False)
-    is_stale = data.get("_stale", False) if data else False
-    stale_tag = f" {DIM}(cached){RESET}" if is_stale else ""
+    data = None
+    try:
+        data, _ = usage_monitor.fetch_usage(force=False)
+    except Exception:
+        pass
+
     if data:
+        is_stale = data.get("_stale", False)
+        stale_tag = f" {DIM}(cached){RESET}" if is_stale else ""
         five_h = data.get("five_hour", {})
         seven_d = data.get("seven_day", {})
         five_pct = five_h.get("utilization")
@@ -450,8 +543,9 @@ def main():
             else:
                 seg_extra = f"{WHITE}extra{RESET} {GREEN}enabled{RESET}"
     else:
-        seg_5h = f"{WHITE}5h{RESET} {DIM}-{RESET}"
-        seg_7d = f"{WHITE}7d{RESET} {DIM}-{RESET}"
+        # Fallback: show local session stats when no Anthropic API access
+        seg_5h = f"{WHITE}5h{RESET} {DIM}n/a{RESET}"
+        seg_7d = f"{WHITE}7d{RESET} {DIM}n/a{RESET}"
 
     # 7. Session Cost
     seg_cost = ""
